@@ -1,6 +1,6 @@
 # MFA App
 
-Simple login application with Vue.js frontend and Django REST Framework backend.
+Simple login application with Vue.js frontend and Django REST Framework backend, featuring Multi-Factor Authentication (MFA) using Google Authenticator.
 
 ## Setup Instructions
 
@@ -70,24 +70,74 @@ The frontend will be available at `http://localhost:5173`
 
 ## Usage
 
+### First Time Login (Without MFA)
+
 1. Open `http://localhost:5173` in your browser
 2. Login with:
    - Username: `admin`
    - Password: `admin`
 3. You will be redirected to the welcome page showing "Success!"
 
+### Setting Up MFA
+
+1. After logging in, click "Setup MFA" on the welcome page
+2. Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)
+3. Enter the 6-digit code from your app to confirm setup
+4. MFA is now enabled for your account
+
+### Logging In With MFA
+
+1. Enter your username and password
+2. If MFA is enabled, you'll be redirected to the MFA verification page
+3. Enter the 6-digit code from your authenticator app
+4. You'll be redirected to the welcome page upon successful verification
+
+### Resetting MFA
+
+If you need to reset MFA for the admin user (development purposes):
+
+1. Navigate to the backend directory:
+```bash
+cd backend
+```
+
+2. Run the reset script:
+```bash
+python reset_mfa.py
+```
+
+This will delete all MFA devices for the admin user. On the next login, you'll be required to set up MFA again.
+
+**Note:** Make sure the Django server is stopped or the database is not locked when running this script.
+
+## API Endpoints
+
+- `POST /api/login/` - Login with username and password
+- `POST /api/mfa/verify/` - Verify MFA token during login
+- `GET /api/mfa/setup/` - Get QR code for MFA setup
+- `POST /api/mfa/confirm/` - Confirm MFA setup with verification code
+- `GET /api/welcome/` - Welcome page (requires authentication)
+
 ## Project Structure
 
 ```
 mfa/
 ├── backend/
-│   ├── api/          # API endpoints
+│   ├── api/          # API endpoints (login, MFA)
 │   ├── config/       # Django settings
 │   └── manage.py
 ├── frontend/
 │   └── src/
-│       ├── views/    # Login and Welcome pages
+│       ├── views/    # Login, Welcome, MFA Setup, MFA Verify
 │       ├── router/   # Vue Router configuration
 │       └── App.vue
 └── README.md
 ```
+
+## MFA Features
+
+- TOTP (Time-based One-Time Password) support
+- QR code generation for easy setup
+- Compatible with Google Authenticator, Authy, and other TOTP apps
+- Optional MFA - users can choose to enable it
+- Secure session-based authentication flow

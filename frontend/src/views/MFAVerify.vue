@@ -1,33 +1,28 @@
 <template>
-  <div class="login-container">
-    <div class="login-card">
-      <h1>Login</h1>
-      <form @submit.prevent="handleLogin">
+  <div class="mfa-container">
+    <div class="mfa-card">
+      <h1>MFA Verification</h1>
+      <p class="instruction">Enter the 6-digit code from your authenticator app</p>
+      <form @submit.prevent="handleVerify">
         <div class="form-group">
-          <label for="username">Username</label>
+          <label for="token">Verification Code</label>
           <input
-            id="username"
-            v-model="username"
+            id="token"
+            v-model="token"
             type="text"
             required
-            placeholder="Enter username"
-          />
-        </div>
-        <div class="form-group">
-          <label for="password">Password</label>
-          <input
-            id="password"
-            v-model="password"
-            type="password"
-            required
-            placeholder="Enter password"
+            placeholder="000000"
+            maxlength="6"
+            pattern="[0-9]{6}"
+            autocomplete="one-time-code"
+            @input="formatToken"
           />
         </div>
         <div v-if="error" class="error-message">
           {{ error }}
         </div>
-        <button type="submit" :disabled="loading">
-          {{ loading ? 'Logging in...' : 'Login' }}
+        <button type="submit" :disabled="loading || token.length !== 6">
+          {{ loading ? 'Verifying...' : 'Verify' }}
         </button>
       </form>
     </div>
@@ -38,57 +33,41 @@
 import axios from 'axios'
 
 export default {
-  name: 'Login',
+  name: 'MFAVerify',
   data() {
     return {
-      username: '',
-      password: '',
+      token: '',
       error: '',
       loading: false
     }
   },
-  async mounted() {
-    // Get CSRF token on component mount
-    try {
-      axios.defaults.withCredentials = true
-      const response = await axios.get('/api/csrf-token/')
-      if (response.data.csrfToken) {
-        axios.defaults.headers.common['X-CSRFToken'] = response.data.csrfToken
-      }
-    } catch (err) {
-      console.warn('Could not get CSRF token:', err)
-    }
-  },
   methods: {
-    async handleLogin() {
+    formatToken(event) {
+      // Only allow numbers
+      this.token = event.target.value.replace(/\D/g, '').slice(0, 6)
+    },
+    async handleVerify() {
+      if (this.token.length !== 6) {
+        this.error = 'Please enter a 6-digit code'
+        return
+      }
+
       this.error = ''
       this.loading = true
 
       try {
         axios.defaults.withCredentials = true
         
-        // Ensure we have CSRF token
-        if (!axios.defaults.headers.common['X-CSRFToken']) {
-          const csrfResponse = await axios.get('/api/csrf-token/')
-          axios.defaults.headers.common['X-CSRFToken'] = csrfResponse.data.csrfToken
-        }
-        
-        const response = await axios.post('/api/login/', {
-          username: this.username,
-          password: this.password
+        const response = await axios.post('/api/mfa/verify/', {
+          token: this.token
         })
 
         if (response.status === 200) {
-          if (response.data.requires_mfa) {
-            this.$router.push('/mfa/verify')
-          } else if (response.data.requires_mfa_setup) {
-            this.$router.push('/mfa/setup')
-          } else {
-            this.$router.push('/welcome')
-          }
+          this.$router.push('/welcome')
         }
       } catch (err) {
-        this.error = err.response?.data?.error || 'Login failed. Please try again.'
+        this.error = err.response?.data?.error || 'Invalid code. Please try again.'
+        this.token = ''
       } finally {
         this.loading = false
       }
@@ -98,7 +77,7 @@ export default {
 </script>
 
 <style scoped>
-.login-container {
+.mfa-container {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,7 +85,7 @@ export default {
   width: 100%;
 }
 
-.login-card {
+.mfa-card {
   background: white;
   padding: 2rem;
   border-radius: 12px;
@@ -117,9 +96,16 @@ export default {
 
 h1 {
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   color: #333;
   font-size: 2rem;
+}
+
+.instruction {
+  text-align: center;
+  color: #666;
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
 }
 
 .form-group {
@@ -138,7 +124,10 @@ input {
   padding: 0.75rem;
   border: 2px solid #e0e0e0;
   border-radius: 6px;
-  font-size: 1rem;
+  font-size: 1.5rem;
+  text-align: center;
+  letter-spacing: 0.5rem;
+  font-family: 'Courier New', monospace;
   transition: border-color 0.3s;
 }
 

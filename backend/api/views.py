@@ -233,3 +233,37 @@ def welcome(request):
     Welcome endpoint that returns success message for authenticated users.
     """
     return Response({'message': 'Success!'}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def lucky_number(request):
+    """
+    Generate and return a random lucky number.
+    """
+    import random
+    number = random.randint(1, 100)
+    return Response({'number': number}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def quote_of_the_day(request):
+    """
+    Return a random quote from a collection of quotes.
+    """
+    import random
+    quotes = [
+        "The only way to do great work is to love what you do. - Steve Jobs",
+        "Innovation distinguishes between a leader and a follower. - Steve Jobs",
+        "Life is what happens to you while you're busy making other plans. - John Lennon",
+        "The future belongs to those who believe in the beauty of their dreams. - Eleanor Roosevelt",
+        "It is during our darkest moments that we must focus to see the light. - Aristotle",
+        "The way to get started is to quit talking and begin doing. - Walt Disney",
+        "Don't let yesterday take up too much of today. - Will Rogers",
+        "You learn more from failure than from success. - Unknown",
+        "If you are working on something exciting that you really care about, you don't have to be pushed. The vision pulls you. - Steve Jobs",
+        "People who are crazy enough to think they can change the world, are the ones who do. - Rob Siltanen"
+    ]
+    quote = random.choice(quotes)
+    return Response({'quote': quote}, status=status.HTTP_200_OK)

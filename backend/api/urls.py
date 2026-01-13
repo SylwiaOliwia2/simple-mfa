@@ -9,4 +9,6 @@ urlpatterns = [
     path('mfa/setup/', views.mfa_setup, name='mfa_setup'),
     path('mfa/confirm/', views.mfa_confirm, name='mfa_confirm'),
     path('welcome/', views.welcome, name='welcome'),
+    path('lucky-number/', views.lucky_number, name='lucky_number'),
+    path('quote-of-the-day/', views.quote_of_the_day, name='quote_of_the_day'),
 ]

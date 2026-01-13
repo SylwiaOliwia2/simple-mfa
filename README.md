@@ -76,7 +76,10 @@ The frontend will be available at `http://localhost:5173`
 2. Login with:
    - Username: `admin`
    - Password: `admin`
-3. You will be redirected to the welcome page showing "Success!"
+3. You will be redirected to the welcome page showing "Hello" message
+4. Use the navigation bar to:
+   - Click "Lucky Number" to generate a random number (1-100)
+   - Click "Quote of the day" to see a random inspirational quote
 
 ### Setting Up MFA
 
@@ -113,10 +116,13 @@ This will delete all MFA devices for the admin user. On the next login, you'll b
 ## API Endpoints
 
 - `POST /api/login/` - Login with username and password
+- `POST /api/logout/` - Logout user
 - `POST /api/mfa/verify/` - Verify MFA token during login
 - `GET /api/mfa/setup/` - Get QR code for MFA setup
 - `POST /api/mfa/confirm/` - Confirm MFA setup with verification code
 - `GET /api/welcome/` - Welcome page (requires authentication)
+- `GET /api/lucky-number/` - Generate a random lucky number (1-100)
+- `GET /api/quote-of-the-day/` - Get a random inspirational quote
 
 ## Project Structure
 

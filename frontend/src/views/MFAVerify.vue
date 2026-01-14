@@ -31,6 +31,7 @@
 
 <script>
 import axios from 'axios'
+import { auth } from '../utils/auth'
 
 export default {
   name: 'MFAVerify',
@@ -39,6 +40,13 @@ export default {
       token: '',
       error: '',
       loading: false
+    }
+  },
+  mounted() {
+    // Check if we have temp token, if not redirect to login
+    const tempTokenData = auth.getTempToken()
+    if (!tempTokenData.temp_token) {
+      this.$router.push('/')
     }
   },
   methods: {
@@ -56,13 +64,21 @@ export default {
       this.loading = true
 
       try {
-        axios.defaults.withCredentials = true
+        const tempTokenData = auth.getTempToken()
         
         const response = await axios.post('/api/mfa/verify/', {
-          token: this.token
+          token: this.token,
+          ...tempTokenData
         })
 
-        if (response.status === 200) {
+        if (response.status === 200 && response.data.access && response.data.refresh) {
+          // Store JWT tokens
+          auth.setTokens(response.data.access, response.data.refresh)
+          // Clear only temp token data, keep JWT tokens
+          localStorage.removeItem('temp_token')
+          localStorage.removeItem('user_id')
+          localStorage.removeItem('timestamp')
+          
           this.$router.push('/welcome')
         }
       } catch (err) {

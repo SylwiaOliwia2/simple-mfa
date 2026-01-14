@@ -39,6 +39,12 @@ docker-compose logs -f
 docker-compose exec backend python reset_mfa.py
 ```
 
+9. To create database migrations (after adding Note model):
+```bash
+docker-compose exec backend python manage.py makemigrations api
+docker-compose exec backend python manage.py migrate
+```
+
 ## Django Admin Panel
 
 The Django admin panel is available at `http://localhost:8000/admin/` (or `http://backend:8000/admin/` from within Docker).
@@ -198,6 +204,9 @@ This will delete all MFA devices for the admin user. On the next login, you'll b
 - `GET /api/welcome/` - Welcome page (requires authentication)
 - `GET /api/lucky-number/` - Generate a random lucky number (1-100)
 - `GET /api/quote-of-the-day/` - Get a random inspirational quote
+- `GET /api/notes/` - Get all notes for authenticated user
+- `POST /api/notes/create/` - Create a new note (requires title and content)
+- `DELETE /api/notes/<id>/delete/` - Delete a note
 
 ## Project Structure
 

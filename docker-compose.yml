@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -11,6 +9,7 @@ services:
     volumes:
       - ./backend:/app
       - backend_db:/app/db_data
+      - backend_media:/app/media
     environment:
       - PYTHONUNBUFFERED=1
     networks:
@@ -42,6 +41,7 @@ services:
 
 volumes:
   backend_db:
+  backend_media:
 
 networks:
   mfa-network:

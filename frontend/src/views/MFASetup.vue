@@ -49,6 +49,7 @@
 
 <script>
 import axios from 'axios'
+import { auth } from '../utils/auth'
 
 export default {
   name: 'MFASetup',
@@ -64,6 +65,12 @@ export default {
     }
   },
   async mounted() {
+    // Check if we have temp token, if not redirect to login
+    const tempTokenData = auth.getTempToken()
+    if (!tempTokenData.temp_token) {
+      this.$router.push('/')
+      return
+    }
     await this.loadSetup()
   },
   methods: {
@@ -73,9 +80,11 @@ export default {
     },
     async loadSetup() {
       try {
-        axios.defaults.withCredentials = true
+        const tempTokenData = auth.getTempToken()
         
-        const response = await axios.get('/api/mfa/setup/')
+        const response = await axios.get('/api/mfa/setup/', {
+          params: tempTokenData
+        })
         
         if (response.data.setup_required) {
           this.qrCode = response.data.qr_code
@@ -100,13 +109,21 @@ export default {
       this.loading = true
 
       try {
-        axios.defaults.withCredentials = true
+        const tempTokenData = auth.getTempToken()
         
         const response = await axios.post('/api/mfa/confirm/', {
-          token: this.token
+          token: this.token,
+          ...tempTokenData
         })
 
-        if (response.status === 200) {
+        if (response.status === 200 && response.data.access && response.data.refresh) {
+          // Store JWT tokens
+          auth.setTokens(response.data.access, response.data.refresh)
+          // Clear temp token
+          localStorage.removeItem('temp_token')
+          localStorage.removeItem('user_id')
+          localStorage.removeItem('timestamp')
+          
           this.success = 'MFA setup confirmed successfully!'
           // Redirect to welcome page after a short delay
           setTimeout(() => {

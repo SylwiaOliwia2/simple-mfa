@@ -36,6 +36,7 @@
 
 <script>
 import axios from 'axios'
+import { auth } from '../utils/auth'
 
 export default {
   name: 'Login',
@@ -47,32 +48,12 @@ export default {
       loading: false
     }
   },
-  async mounted() {
-    // Get CSRF token on component mount
-    try {
-      axios.defaults.withCredentials = true
-      const response = await axios.get('/api/csrf-token/')
-      if (response.data.csrfToken) {
-        axios.defaults.headers.common['X-CSRFToken'] = response.data.csrfToken
-      }
-    } catch (err) {
-      console.warn('Could not get CSRF token:', err)
-    }
-  },
   methods: {
     async handleLogin() {
       this.error = ''
       this.loading = true
 
       try {
-        axios.defaults.withCredentials = true
-        
-        // Ensure we have CSRF token
-        if (!axios.defaults.headers.common['X-CSRFToken']) {
-          const csrfResponse = await axios.get('/api/csrf-token/')
-          axios.defaults.headers.common['X-CSRFToken'] = csrfResponse.data.csrfToken
-        }
-        
         const response = await axios.post('/api/login/', {
           username: this.username,
           password: this.password
@@ -80,10 +61,26 @@ export default {
 
         if (response.status === 200) {
           if (response.data.requires_mfa) {
+            // Store temporary token for MFA verification
+            auth.setTempToken(
+              response.data.temp_token,
+              response.data.user_id,
+              response.data.timestamp
+            )
             this.$router.push('/mfa/verify')
           } else if (response.data.requires_mfa_setup) {
+            // Store temporary token for MFA setup
+            auth.setTempToken(
+              response.data.temp_token,
+              response.data.user_id,
+              response.data.timestamp
+            )
             this.$router.push('/mfa/setup')
           } else {
+            // If no MFA, store JWT tokens directly (shouldn't happen with current flow)
+            if (response.data.access && response.data.refresh) {
+              auth.setTokens(response.data.access, response.data.refresh)
+            }
             this.$router.push('/welcome')
           }
         }

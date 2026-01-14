@@ -3,6 +3,7 @@ import Login from '../views/Login.vue'
 import Welcome from '../views/Welcome.vue'
 import MFAVerify from '../views/MFAVerify.vue'
 import MFASetup from '../views/MFASetup.vue'
+import { auth } from '../utils/auth'
 
 const routes = [
   {
@@ -31,6 +32,15 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// Navigation guard to check authentication
+router.beforeEach((to, from, next) => {
+  if (to.meta.requiresAuth && !auth.isAuthenticated()) {
+    next('/')
+  } else {
+    next()
+  }
 })
 
 export default router

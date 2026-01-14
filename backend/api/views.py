@@ -2,24 +2,33 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
+from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from django.middleware.csrf import get_token
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
+from .models import Note
 import qrcode
 from io import BytesIO
 import base64
 import urllib.parse
+import os
+from datetime import datetime
+import hashlib
+import time
 
 
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def csrf_token(request):
+def get_tokens_for_user(user):
     """
-    Get CSRF token for the frontend.
+    Generate JWT tokens for a user.
     """
-    return Response({'csrfToken': get_token(request)})
+    refresh = RefreshToken.for_user(user)
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    }
 
 
 @csrf_exempt
@@ -29,6 +38,7 @@ def login(request):
     """
     Login endpoint that accepts username and password.
     Returns requires_mfa: true if user has MFA enabled.
+    For MFA flow, returns a temporary token (user_id hash) that can be used for MFA verification.
     """
     username = request.data.get('username')
     password = request.data.get('password')
@@ -46,19 +56,31 @@ def login(request):
         has_mfa = TOTPDevice.objects.filter(user=user, confirmed=True).exists()
         
         if has_mfa:
-            # Store user ID in session for MFA verification
-            request.session['mfa_user_id'] = user.id
-            request.session['mfa_authenticated'] = False
+            # Generate a temporary token for MFA verification
+            # This is a simple hash of user_id + timestamp, valid for 5 minutes
+            timestamp = int(time.time())
+            temp_token_data = f"{user.id}:{timestamp}:{settings.SECRET_KEY}"
+            temp_token = hashlib.sha256(temp_token_data.encode()).hexdigest()[:32]
+            
             return Response({
                 'requires_mfa': True,
-                'message': 'MFA verification required'
+                'message': 'MFA verification required',
+                'temp_token': temp_token,
+                'user_id': user.id,
+                'timestamp': timestamp
             }, status=status.HTTP_200_OK)
         else:
-            request.session['mfa_user_id'] = user.id
-            request.session['mfa_setup_required'] = True
+            # Generate a temporary token for MFA setup
+            timestamp = int(time.time())
+            temp_token_data = f"{user.id}:{timestamp}:{settings.SECRET_KEY}"
+            temp_token = hashlib.sha256(temp_token_data.encode()).hexdigest()[:32]
+            
             return Response({
                 'requires_mfa_setup': True,
-                'message': 'MFA setup required'
+                'message': 'MFA setup required',
+                'temp_token': temp_token,
+                'user_id': user.id,
+                'timestamp': timestamp
             }, status=status.HTTP_200_OK)
     else:
         return Response(
@@ -67,31 +89,66 @@ def login(request):
         )
 
 
+def verify_temp_token(temp_token, user_id, timestamp):
+    """
+    Verify the temporary token used for MFA flow.
+    Token is valid for 5 minutes.
+    """
+    current_time = int(time.time())
+    if current_time - timestamp > 300:  # 5 minutes
+        return False
+    
+    temp_token_data = f"{user_id}:{timestamp}:{settings.SECRET_KEY}"
+    expected_token = hashlib.sha256(temp_token_data.encode()).hexdigest()[:32]
+    return temp_token == expected_token
+
+
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_mfa(request):
     """
     Verify MFA token and complete login.
+    Returns JWT tokens upon successful verification.
     """
     token = request.data.get('token')
-    user_id = request.session.get('mfa_user_id')
+    temp_token = request.data.get('temp_token')
+    user_id = request.data.get('user_id')
+    timestamp = request.data.get('timestamp')
     
-    if not token or not user_id:
+    if not token or not temp_token or not user_id or not timestamp:
         return Response(
-            {'error': 'Token and user ID are required'},
+            {'error': 'Token, temp_token, user_id, and timestamp are required'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
+    # Verify temporary token
     try:
-        user = User.objects.get(id=user_id)
+        user_id_int = int(user_id)
+        timestamp_int = int(timestamp)
+    except (ValueError, TypeError):
+        return Response(
+            {'error': 'Invalid user_id or timestamp format'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    if not verify_temp_token(temp_token, user_id_int, timestamp_int):
+        return Response(
+            {'error': 'Invalid or expired temporary token'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    try:
+        user = User.objects.get(id=user_id_int)
         device = TOTPDevice.objects.get(user=user, confirmed=True)
         
         if device.verify_token(token):
-            auth_login(request, user)
-            request.session['mfa_authenticated'] = True
-            del request.session['mfa_user_id']
-            return Response({'message': 'MFA verified, login successful'}, status=status.HTTP_200_OK)
+            # Generate JWT tokens
+            tokens = get_tokens_for_user(user)
+            return Response({
+                'message': 'MFA verified, login successful',
+                **tokens
+            }, status=status.HTTP_200_OK)
         else:
             return Response(
                 {'error': 'Invalid MFA token'},
@@ -109,20 +166,32 @@ def verify_mfa(request):
 def mfa_setup(request):
     """
     Get or create MFA device and return QR code for setup.
-    Works with session-based user_id for initial setup.
+    Accepts temp_token, user_id, and timestamp for initial setup.
     """
     if request.user.is_authenticated:
         user = request.user
     else:
-        user_id = request.session.get('mfa_user_id')
-        if not user_id:
+        # Get from query parameters (for initial setup)
+        temp_token = request.GET.get('temp_token')
+        user_id = request.GET.get('user_id')
+        timestamp = request.GET.get('timestamp')
+        
+        if not temp_token or not user_id or not timestamp:
             return Response(
-                {'error': 'No user session found. Please login again.'},
+                {'error': 'temp_token, user_id, and timestamp are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify temporary token
+        if not verify_temp_token(temp_token, int(user_id), int(timestamp)):
+            return Response(
+                {'error': 'Invalid or expired temporary token. Please login again.'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
+        
         try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
+            user = User.objects.get(id=int(user_id))
+        except (User.DoesNotExist, ValueError):
             return Response(
                 {'error': 'User not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -177,28 +246,38 @@ def mfa_setup(request):
 
 
 @csrf_exempt
-@csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def mfa_confirm(request):
     """
     Confirm MFA setup by verifying the token.
-    Works with session-based user_id for initial setup.
+    Accepts temp_token, user_id, and timestamp for initial setup.
+    Returns JWT tokens upon successful confirmation.
     """
     token = request.data.get('token')
+    temp_token = request.data.get('temp_token')
+    user_id = request.data.get('user_id')
+    timestamp = request.data.get('timestamp')
     
     if request.user.is_authenticated:
         user = request.user
     else:
-        user_id = request.session.get('mfa_user_id')
-        if not user_id:
+        if not temp_token or not user_id or not timestamp:
             return Response(
-                {'error': 'No user session found. Please login again.'},
+                {'error': 'temp_token, user_id, and timestamp are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify temporary token
+        if not verify_temp_token(temp_token, int(user_id), int(timestamp)):
+            return Response(
+                {'error': 'Invalid or expired temporary token. Please login again.'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
+        
         try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
+            user = User.objects.get(id=int(user_id))
+        except (User.DoesNotExist, ValueError):
             return Response(
                 {'error': 'User not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -217,12 +296,12 @@ def mfa_confirm(request):
             device.confirmed = True
             device.save()
             
-            if request.session.get('mfa_setup_required'):
-                auth_login(request, user)
-                del request.session['mfa_setup_required']
-                del request.session['mfa_user_id']
-            
-            return Response({'message': 'MFA setup confirmed'}, status=status.HTTP_200_OK)
+            # Generate JWT tokens
+            tokens = get_tokens_for_user(user)
+            return Response({
+                'message': 'MFA setup confirmed',
+                **tokens
+            }, status=status.HTTP_200_OK)
         else:
             return Response(
                 {'error': 'Invalid token'},
@@ -235,15 +314,15 @@ def mfa_confirm(request):
         )
 
 
-@csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout(request):
     """
-    Logout endpoint that logs out the user and clears the session.
+    Logout endpoint. With JWT, logout is handled client-side by removing tokens.
+    Optionally, we can blacklist the refresh token here.
     """
-    auth_logout(request)
-    request.session.flush()
+    # In a production app, you might want to blacklist the refresh token
+    # For now, we'll just return success - client should remove tokens
     return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
 
 
@@ -288,3 +367,158 @@ def quote_of_the_day(request):
     ]
     quote = random.choice(quotes)
     return Response({'quote': quote}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def notes_list(request):
+    """
+    Get all notes for the authenticated user.
+    """
+    notes = Note.objects.filter(author=request.user)
+    notes_data = []
+    for note in notes:
+        notes_data.append({
+            'id': note.id,
+            'title': note.title,
+            'file_url': f'/api/notes/{note.id}/download/',  # Use API endpoint instead of direct file URL
+            'file_path': note.file_path,
+            'created_at': note.created_at.isoformat(),
+            'updated_at': note.updated_at.isoformat(),
+        })
+    return Response({'notes': notes_data}, status=status.HTTP_200_OK)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def notes_create(request):
+    """
+    Create a new note and save it as a txt file.
+    """
+    title = request.data.get('title', '').strip()
+    content = request.data.get('content', '').strip()
+    
+    if not title:
+        return Response(
+            {'error': 'Title is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    if not content:
+        return Response(
+            {'error': 'Content is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Ensure notes directory exists
+    notes_dir = settings.NOTES_DIR
+    os.makedirs(notes_dir, exist_ok=True)
+    
+    # Create unique filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    safe_title = safe_title.replace(' ', '_')[:50]
+    filename = f"{request.user.id}_{timestamp}_{safe_title}.txt"
+    file_path = os.path.join(notes_dir, filename)
+    
+    # Save content to file
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except Exception as e:
+        return Response(
+            {'error': f'Failed to save file: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+    # Create note record in database
+    # Store relative path for the file
+    relative_path = f'/media/notes/{filename}'
+    note = Note.objects.create(
+        author=request.user,
+        title=title,
+        file_path=relative_path
+    )
+    
+    # Return API endpoint URL for downloading
+    file_url = f'/api/notes/{note.id}/download/'
+    
+    return Response({
+        'id': note.id,
+        'title': note.title,
+        'file_url': file_url,
+        'created_at': note.created_at.isoformat(),
+        'message': 'Note created successfully'
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def notes_download(request, note_id):
+    """
+    Download a note file. Only the author can download their own notes.
+    """
+    try:
+        note = Note.objects.get(id=note_id, author=request.user)
+    except Note.DoesNotExist:
+        return Response(
+            {'error': 'Note not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Get the actual file path
+    file_path = os.path.join(settings.MEDIA_ROOT, note.file_path.lstrip('/media/'))
+    
+    if not os.path.exists(file_path):
+        return Response(
+            {'error': 'File not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Read and serve the file
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        from django.http import HttpResponse
+        
+        # Sanitize filename for Content-Disposition header
+        safe_filename = urllib.parse.quote(note.title.replace('/', '_').replace('\\', '_'))
+        response = HttpResponse(content, content_type='text/plain; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="{safe_filename}.txt"'
+        return response
+    except Exception as e:
+        return Response(
+            {'error': f'Failed to read file: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def notes_delete(request, note_id):
+    """
+    Delete a note and its associated txt file.
+    """
+    try:
+        note = Note.objects.get(id=note_id, author=request.user)
+    except Note.DoesNotExist:
+        return Response(
+            {'error': 'Note not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Delete the file
+    file_path = os.path.join(settings.MEDIA_ROOT, note.file_path.lstrip('/media/'))
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            # Log error but continue with database deletion
+            print(f"Warning: Failed to delete file {file_path}: {e}")
+    
+    # Delete the note record
+    note.delete()
+    
+    return Response({'message': 'Note deleted successfully'}, status=status.HTTP_200_OK)

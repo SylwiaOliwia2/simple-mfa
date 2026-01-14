@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mfa-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - backend_db:/app/db_data
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - mfa-network
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate &&
+             python create_admin.py || true &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mfa-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://backend:8000
+    networks:
+      - mfa-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend_db:
+
+networks:
+  mfa-network:
+    driver: bridge

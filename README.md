@@ -2,7 +2,39 @@
 
 Simple login application with Vue.js frontend and Django REST Framework backend, featuring Multi-Factor Authentication (MFA) using Google Authenticator.
 
-## Setup Instructions
+## Quick Start with Docker Compose (Recommended)
+
+1. Make sure Docker and Docker Compose are installed on your system.
+
+2. Build and start all services:
+```bash
+docker-compose up --build
+```
+
+3. The application will be available at:
+   - Frontend: `http://localhost:5173`
+   - Backend API: `http://localhost:8000`
+
+4. Login credentials:
+   - Username: `admin`
+   - Password: `admin`
+
+5. To stop the services:
+```bash
+docker-compose down
+```
+
+6. To view logs:
+```bash
+docker-compose logs -f
+```
+
+7. To reset MFA (if needed):
+```bash
+docker-compose exec backend python reset_mfa.py
+```
+
+## Manual Setup Instructions (Without Docker)
 
 ### Backend Setup
 
@@ -131,12 +163,15 @@ mfa/
 ├── backend/
 │   ├── api/          # API endpoints (login, MFA)
 │   ├── config/       # Django settings
+│   ├── Dockerfile    # Backend Docker configuration
 │   └── manage.py
 ├── frontend/
-│   └── src/
-│       ├── views/    # Login, Welcome, MFA Setup, MFA Verify
-│       ├── router/   # Vue Router configuration
-│       └── App.vue
+│   ├── src/
+│   │   ├── views/    # Login, Welcome, MFA Setup, MFA Verify
+│   │   ├── router/   # Vue Router configuration
+│   │   └── App.vue
+│   └── Dockerfile    # Frontend Docker configuration
+├── docker-compose.yml # Docker Compose configuration
 └── README.md
 ```
 

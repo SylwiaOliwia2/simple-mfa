@@ -19,20 +19,63 @@ docker-compose up --build
    - Username: `admin`
    - Password: `admin`
 
-5. To stop the services:
+5. Access Django Admin Panel:
+   - URL: `http://localhost:8000/admin/`
+   - Use the same credentials (admin/admin)
+   - You can create and manage users (including non-admin users) from the admin panel
+
+6. To stop the services:
 ```bash
 docker-compose down
 ```
 
-6. To view logs:
+7. To view logs:
 ```bash
 docker-compose logs -f
 ```
 
-7. To reset MFA (if needed):
+8. To reset MFA (if needed):
 ```bash
 docker-compose exec backend python reset_mfa.py
 ```
+
+## Django Admin Panel
+
+The Django admin panel is available at `http://localhost:8000/admin/` (or `http://backend:8000/admin/` from within Docker).
+
+### Access
+- URL: `http://localhost:8000/admin/`
+- Username: `admin`
+- Password: `admin`
+
+### Features
+- **User Management**: Create, edit, and delete users
+  - To create a **non-admin user**: 
+    1. Go to "Users" → "Add user"
+    2. Enter username and password
+    3. **Uncheck** "Staff status" and "Superuser status" checkboxes
+    4. Click "Save"
+- **MFA Device Management**: View and manage TOTP devices for users
+- **Session Management**: View active sessions
+
+## Django Admin Panel
+
+The Django admin panel is available at `http://localhost:8000/admin/` (or `http://backend:8000/admin/` from within Docker).
+
+### Access
+- URL: `http://localhost:8000/admin/`
+- Username: `admin`
+- Password: `admin`
+
+### Features
+- **User Management**: Create, edit, and delete users
+  - To create a **non-admin user**: 
+    1. Go to "Users" → "Add user"
+    2. Enter username and password
+    3. **Uncheck** "Staff status" and "Superuser status" checkboxes
+    4. Click "Save"
+- **MFA Device Management**: View and manage TOTP devices for users
+- **Session Management**: View active sessions
 
 ## Manual Setup Instructions (Without Docker)
 

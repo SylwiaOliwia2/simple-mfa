@@ -10,6 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 import qrcode
 from io import BytesIO
 import base64
+import urllib.parse
 
 
 @api_view(['GET'])
@@ -127,13 +128,33 @@ def mfa_setup(request):
                 status=status.HTTP_404_NOT_FOUND
             )
     
+    # Create custom device name: "my-mfa-app + username"
+    device_name = f"my-mfa-app-{user.username}"
+    
     device, created = TOTPDevice.objects.get_or_create(
         user=user,
-        defaults={'name': 'some_device', 'confirmed': False}
+        defaults={'name': device_name, 'confirmed': False}
     )
     
+    # Update device name if it was created with old name
+    if device.name != device_name:
+        device.name = device_name
+        device.save()
+    
     if not device.confirmed:
-        config_url = device.config_url
+        base_config_url = device.config_url
+        
+        # Parse and customize the config URL
+        # Extract secret from the original URL
+        parsed = urllib.parse.urlparse(base_config_url)
+        query_params = urllib.parse.parse_qs(parsed.query)
+        secret = query_params.get('secret', [device.key])[0]
+        
+        # Create custom config URL with "my-mfa-app" as issuer and username as account name
+        issuer = "my-mfa-app"
+        account_name = user.username
+        config_url = f"otpauth://totp/{issuer}:{account_name}?secret={secret}&issuer={issuer}"
+        
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
         qr.add_data(config_url)
         qr.make(fit=True)
